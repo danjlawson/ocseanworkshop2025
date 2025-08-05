@@ -62,7 +62,7 @@ world <- ne_countries(scale = "medium", returnclass = "sf")
 points_df=data.frame(lon=metadata[,"Coordinate 2"],
                      lat=metadata[,"Coordinate 1"],
                      label=rownames(metadata),
-                     group=metadata[,"grouping"]),
+                     group=metadata[,"grouping"],
                      negrito=metadata[,"Cluster 1"]=="Negrito")
 rownames(points_df)=points_df[,"label"]
 grouping_map=c("darkgrey","red","blue","orange",
@@ -75,7 +75,8 @@ ggplot(data = world) +
     geom_point(data = points_df,
                aes(x = lon, y = lat, color = group,shape = negrito), size = 2) +
     coord_sf(xlim = range(metadata[,"Coordinate 2"])+c(-5,5),
-             ylim = range(metadata[,"Coordinate 1"])+c(-5,5), expand = FALSE) +
+             ##             ylim = range(metadata[,"Coordinate 1"])+c(0,1), expand = FALSE) +
+                          ylim =c(5,20), expand = FALSE) +
     scale_color_manual(values = grouping_map) +
     scale_shape_manual(values = c(`FALSE` = 1, `TRUE` = 16)) +
     geom_text_repel(data = points_df,
@@ -85,6 +86,16 @@ ggplot(data = world) +
   labs(title = "",
        x = "Longitude", y = "Latitude")
 dev.off()
+
+makegenemask=function(gene){
+    ret=gene
+    ret[]=0
+    for(i in 1:dim(gene)[1]){
+        ret[i,gene[i,]==gene[i,i]]=1
+    }
+    ret
+}
+genemask=makegenemask(gene)
 
 ## Use this to make a partial ordering
 tdata=scale(gene) + scale(lang)
@@ -99,7 +110,7 @@ points_df=points_df[myorder,]
 
 names(grouping_map)=ugroups
 grouping_colors<-grouping_map[points_df[,"group"]]
-
+names(grouping_colors)=rownames(lang)
 
 kmax=25
 lang=scale(lang)
@@ -116,17 +127,37 @@ genepredictslang_resid=Clarity_Extract(genepredictslang,summary=I,k=10)
 langpredictsgene_resid=really_as_matrix(langpredictsgene_resid)
 genepredictslang_resid=really_as_matrix(genepredictslang_resid)
 
-tv=sort(as.numeric(langpredictsgene_resid))
-gene_thresh=quantile(abs(tv),0.9)
-tv=sort(as.numeric(genepredictslang_resid))
-lang_thresh=quantile(abs(tv),0.9)
+tv_lg=sort(as.numeric(langpredictsgene_resid))
+gene_thresh=quantile(abs(tv_lg),0.8)
+tv_gl=sort(as.numeric(genepredictslang_resid))
+lang_thresh=quantile(abs(tv_gl),0.8)
 
 par(mfrow=c(1,2))
-plot(tv,col=c("black","red")[1+(abs(tv)>gene_thresh)])
-plot(tv,col=c("black","red")[1+(abs(tv)>lang_thresh)])
+plot(tv_lg,col=c("black","red")[1+(abs(tv_lg)>gene_thresh)])
+plot(tv_gl,col=c("black","red")[1+(abs(tv_gl)>lang_thresh)])
 
 
 my_palette <- colorRampPalette(c("blue", "white", "red"))(100)
+
+langpredictsgene_signif=abs(langpredictsgene_resid)>gene_thresh
+langpredictsgene_signif=langpredictsgene_signif * (1-genemask)
+genepredictslang_signif=abs(genepredictslang_resid)>lang_thresh
+genepredictslang_signif=genepredictslang_signif * (1-genemask)
+both_signif=langpredictsgene_signif * genepredictslang_signif
+
+joint_signif=data.frame(as.numeric(langpredictsgene_signif),as.numeric(genepredictslang_signif))
+table(joint_signif)
+
+pdf("Pipeline results/OCSEAN_Clarity_Signif.pdf",height=6,width=6)
+par(mfrow=c(1,1))
+Clarity_Chart(langpredictsgene_resid,scalefun=I,cex.axis=0.4,las=2,mar=mypar,
+              zlim=c(-1,1)*max(abs(range(langpredictsgene_resid))),
+              col.axis.Y=grouping_colors,col.axis.X=grouping_colors,
+              cols=my_palette,
+              signif=both_signif)
+mtext("red: genes>language, blue: language>genes",side=3)
+dev.off()
+
 
 mypar=c(5,5,2,1)
 pdf("Pipeline results/OCSEAN_Clarity_Genes_Language.pdf",height=6,width=12)
