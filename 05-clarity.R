@@ -148,6 +148,7 @@ both_signif=langpredictsgene_signif * genepredictslang_signif
 joint_signif=data.frame(as.numeric(langpredictsgene_signif),as.numeric(genepredictslang_signif))
 table(joint_signif)
 
+mypar=c(5,5,2,1)
 pdf("Pipeline results/OCSEAN_Clarity_Signif.pdf",height=6,width=6)
 par(mfrow=c(1,1))
 Clarity_Chart(langpredictsgene_resid,scalefun=I,cex.axis=0.4,las=2,mar=mypar,
@@ -159,7 +160,6 @@ mtext("red: genes>language, blue: language>genes",side=3)
 dev.off()
 
 
-mypar=c(5,5,2,1)
 pdf("Pipeline results/OCSEAN_Clarity_Genes_Language.pdf",height=6,width=12)
 par(mfrow=c(2,3))
 Clarity_Chart(gene,scalefun=I,cex.axis=0.4,las=2,mar=mypar,

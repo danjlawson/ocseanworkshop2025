@@ -195,8 +195,8 @@ colnames(semantic_data)=paste(rep(names(semantic_list),each=nperdata),
 refdf=data.frame(name=colnames(semantic_data),
                  field=as.factor(rep(names(semantic_list),each=nperdata)),
                  lang=as.factor(rep(rownames(semantic_list[[1]]),
-                                    by=ndata)),
-                 group=metadata[refdf[,"lang"],"grouping"])
+                                    by=ndata)))
+refdf$group=metadata[refdf[,"lang"],"grouping"]
 ref_order=as.character(refdf[1:nperdata,"lang"])
 plot_labels=paste(rep(names(semantic_list),each=nperdata),
                   rep(rownames(semantic_list[[1]]),by=ndata),
@@ -256,6 +256,17 @@ text(meanX[,i],meanX[,j],labels=rownames(meanX),
 dev.off()
 
 ## X[refdf[,"lang"]=="bali",]
+
+
+###########################
+## Geographic linkage
+geo=points_df[rownames(points_df)%in%semantic_lang_order,1:2]
+geo2=data.frame("lon"=rep(geo[,1],times=ndata),
+                "lat"=rep(geo[,2],times=ndata))
+rownames(geo2)=rownames(X)
+points_df2=points_df[rownames(geo),]
+points_df2["Balinese",c("lon","lat")]<-c(120,6)
+
 
 ## UMAP
 set.seed(1)
@@ -381,14 +392,6 @@ Clarity_Chart(t(semantic_table[semantic_lang_order,myorder2]),scalefun=I,text=T,
               col.axis.Y=semantic_colors)
 dev.off()
 
-###########################
-## Geographic linkage
-geo=points_df[rownames(points_df)%in%semantic_lang_order,1:2]
-geo2=data.frame("lon"=rep(geo[,1],times=ndata),
-                "lat"=rep(geo[,2],times=ndata))
-rownames(geo2)=rownames(X)
-points_df2=points_df[rownames(geo),]
-points_df2["Balinese",c("lon","lat")]<-c(120,6)
 
 ## Procrust the estimate onto geography
 library("vegan")
@@ -403,9 +406,8 @@ my_scale=function(x1,x2){
     x1
 }
 Xpro=my_scale(Xpro[,1:2],geo)
-
-
 meanXpro=data.frame(get_means(Xpro,refdf,ref_order))
+
 ## Construct a data frame containing this information
 points_df2[,"lonhat"]<-meanXpro[,1]
 points_df2[,"lathat"]<-meanXpro[,2]
@@ -487,4 +489,121 @@ draw_edges(edges,Xpro[,1],Xpro[,2],
 text(meanXpro[,1],meanXpro[,2],labels=rownames(meanXpro),
      col=get_colors(nperdata)[refdf[1:nperdata,"lang"]],
      cex=c(0.4,0.6)[1+rownames(meanXpro)%in%highlight])
+dev.off()
+
+###############################
+## Visualisation of results for one language group at a time
+kmax=25
+lang=scale(lang)
+lang = (lang+t(lang))/2
+gene=scale(gene)
+gene = (gene + t(gene))/2
+
+slangscan<-Clarity_Scan(semantic_list[["lang"]],kmax=kmax)
+sgenescan<-Clarity_Scan(semantic_list[["gene"]],kmax=kmax)
+slangpredictsx<-lapply(semantic_list,Clarity_Predict,clist=slangscan,verbose=FALSE)
+sgenepredictsx<-lapply(semantic_list,Clarity_Predict,clist=sgenescan,verbose=FALSE)
+
+slangpredictsx_resid=lapply(slangpredictsx,Clarity_Extract,summary=I,k=15)
+sgenepredictsx_resid=lapply(sgenepredictsx,Clarity_Extract,summary=I,k=15)
+slangpredictsx_resid=lapply(slangpredictsx_resid,really_as_matrix)
+sgenepredictsx_resid=lapply(sgenepredictsx_resid,really_as_matrix)
+
+
+get_thresh<-function(r){
+    diag(r)<-0
+    max(abs(r))
+}
+as_network<-function(r,thresh){
+    ret=(r>thresh)-((r< -thresh))
+    diag(ret)=0
+    ret=((ret+t(ret))/2)
+    ret[ret<0]=-1
+    ret[ret>0]=1
+    ret
+}
+s_lang_thresh=get_thresh(slangpredictsx_resid[["lang"]])
+s_gene_thresh=get_thresh(sgenepredictsx_resid[["gene"]])
+slang_networks<-lapply(slangpredictsx_resid,as_network,thresh=s_lang_thresh)
+sgene_networks<-lapply(sgenepredictsx_resid,as_network,thresh=s_gene_thresh)
+sapply(sgene_networks,mean)
+sapply(slang_networks,mean)
+
+image(slangpredictsx_resid[["lang"]])
+sapply(slangpredictsx_resid,range)[,"lang"]
+sapply(sgenepredictsx_resid,range)
+
+for(pop in ref_order) {
+    print(pop)
+    popsignifmat<-sapply(slang_networks,function(x)x[,pop])
+    popdf=cbind(points_df2,popsignifmat)
+    ## Plot it
+    pdf(paste0("Pipeline results/bypop/SimplerVisualisation",pop,".pdf"),height=6,width=8)
+    for(field in names(semantic_list)) {
+        field_sym <- sym(field) 
+        r=ggplot(data = world) +
+            geom_sf(fill = "antiquewhite") +
+            geom_point(data=popdf,aes(x = lon, y = lat, 
+                color = group,
+                alpha=factor(!!field_sym), 
+                shape = factor(!!field_sym)),
+                size = 1) +
+            coord_sf(xlim = range(metadata[,"Coordinate 2"])+c(-5,5),
+                     ylim =c(2,20), expand = FALSE) +
+            scale_color_manual(values = grouping_map) +
+            scale_size_manual(values = c("0" = 2, "1" = 2.5)) + # smaller for faded labels
+            scale_alpha_manual(values = c("0" = 0.2, "1" = 1)) +
+            scale_shape_manual(values = c("0" = 16, "1" = 17, "-1" = 4)) +  # example shapes
+            geom_text_repel(data = popdf,
+                            aes(x = lon, y = lat, label = label, color = group,
+                                alpha = factor(!!field_sym),
+                                fontface = ifelse(!!field_sym == -1, "italic", "plain")
+                        ), size=2.5,
+                            max.overlaps=40, seed = 42,show.legend = FALSE) +
+            theme_minimal() +
+            guides(alpha = "none", size = "none",shape="none") +
+            labs(title = field,
+                 x = "Longitude", y = "Latitude")
+        print(r)
+    }
+    dev.off()
+}
+
+
+###
+## Sort the function words by overall borrowing rate according to an external reference
+## The last 8 (from Quantity) are 20.5% and below borrowing rate
+# Tadmor, Uri. 2009. Loanwords in the world’s languages: Findings and results. In M. Haspelmath & U. Tadmor (Eds.), Loanwords in the world’s languages: A comparative handbook. (pp. 55–75). Berlin/New York: De Gruyter Mouton.
+
+semantic_fields_sorted=c("Miscellaneous function words",
+"Religion and belief","Clothing and grooming","The house","Law",
+"Social and political relations","Agriculture and vegetation","Food and drink",
+"Warfare and hunting","Possession","Animals","Cognition","Basic actions and technology",
+"Time","Speech and language","Quantity","Emotions and values","The physical world","Motion",
+"Kinship","The body","Spatial relations","Sense perception")
+
+weightedMean<-function(xl,w){
+    res=xl[[1]]*w[1]
+    for(i in 2:length(w)){
+        res=res + xl[[2]]*w[2]
+    }
+    return(res/sum(w))
+}
+
+sf1<-tail(semantic_fields_sorted,8)
+sf2<-tail(head(semantic_fields_sorted,9),8)
+weightings<-colMeans(semantic_table)
+sf2=sf2[!is.na(weightings[sf2])]
+sfmatrix1<-weightedMean(semantic_list_full[sf1],weightings[sf1])
+sfmatrix2<-weightedMean(semantic_list_full[sf2],weightings[sf2])
+
+pdf("Pipeline results/OCSEAN_SemanticDistancesGrouped.pdf",height=6,width=6)
+    Clarity_Chart(sfmatrix1[rownames(gene),colnames(gene)],
+                  scalefun=I,cex.axis=0.4,las=2,mar=mypar,
+                  col.axis.Y=grouping_colors,col.axis.X=grouping_colors,
+                  main="Highly Conserved Semantic Fields")
+    Clarity_Chart(sfmatrix2[rownames(gene),colnames(gene)],
+                  scalefun=I,cex.axis=0.4,las=2,mar=mypar,
+                  col.axis.Y=grouping_colors,col.axis.X=grouping_colors,
+                  main="Poorly Conserved Semantic Fields")
 dev.off()
